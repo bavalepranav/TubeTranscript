@@ -1,4 +1,4 @@
-# 🎥 YouTube Video Q&A Chatbot
+# 🎥 TubeTranscript
 
 Ask questions about any YouTube video and get answers based on its transcript, using RAG (Retrieval-Augmented Generation).
 

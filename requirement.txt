@@ -1,0 +1,10 @@
+flask
+youtube-transcript-api
+langchain-text-splitters
+langchain-community
+langchain-huggingface
+sentence-transformers
+faiss-cpu
+langchain-groq
+python-dotenv
+pytest

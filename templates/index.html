@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YouTube RAG Chat</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+    h1 { margin-bottom: 1rem; }
+    .card { background: #f8f9fa; border: 1px solid #ddd; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+    input[type="text"], input[type="password"] { width: 100%; box-sizing: border-box; padding: 0.6rem; margin-bottom: 0.5rem; border: 1px solid #ccc; border-radius: 4px; }
+    button { padding: 0.6rem 1.2rem; background: #0066cc; color: #fff; border: none; border-radius: 4px; cursor: pointer; margin-right: 0.5rem; }
+    button:disabled { background: #888; cursor: not-allowed; }
+    .btn-secondary { background: #555; }
+    #chat-box { min-height: 200px; max-height: 440px; overflow-y: auto; border: 1px solid #ddd; border-radius: 8px; padding: 1rem; margin-bottom: 0.5rem; background: #fff; }
+    .msg { margin-bottom: 1rem; line-height: 1.4; }
+    .user { font-weight: bold; color: #0066cc; }
+    .bot { font-weight: bold; color: #222; }
+    .bot-content { margin-top: 0.3rem; line-height: 1.5; color: #333; }
+    .bot-content p { margin: 0.4rem 0; }
+    .bot-content ul, .bot-content ol { margin: 0.4rem 0; padding-left: 1.4rem; }
+    .bot-content li { margin-bottom: 0.25rem; }
+    .bot-content h1, .bot-content h2, .bot-content h3 { margin: 0.6rem 0 0.3rem; font-size: 1.05rem; }
+    .bot-content code { background: #eef1f5; padding: 2px 4px; border-radius: 4px; font-size: 0.9em; }
+    .bot-content pre { background: #eef1f5; padding: 0.6rem; border-radius: 4px; overflow-x: auto; }
+    .status { font-size: 0.9rem; margin-top: 0.3rem; }
+    .status.error { color: #c00; }
+    .status.ok { color: #080; }
+  </style>
+</head>
+<body>
+  <h1>YouTube RAG Chat</h1>
+  
+  <div class="card">
+    <input type="text" id="url" placeholder="YouTube URL (e.g. https://www.youtube.com/watch?v=...)" onkeydown="if(event.key==='Enter') loadVideo()">
+    <input type="password" id="api-key" placeholder="Groq API Key (optional if GROQ_API_KEY is set in .env)">
+    <button id="load-btn" onclick="loadVideo()">Load Video</button>
+    <div id="load-status" class="status"></div>
+  </div>
+
+  <div class="card">
+    <div id="chat-box"></div>
+    <div style="display: flex; gap: 0.5rem;">
+      <input type="text" id="query" placeholder="Ask a question or request a summary..." style="margin-bottom: 0;" onkeydown="if(event.key==='Enter') sendChat()">
+      <button id="send-btn" onclick="sendChat()">Send</button>
+      <button id="sum-btn" class="btn-secondary" onclick="summarize()">Summarize</button>
+    </div>
+    <div id="chat-status" class="status"></div>
+  </div>
+
+  <script>
+    const chatBox = document.getElementById('chat-box');
+    const loadStatus = document.getElementById('load-status');
+    const chatStatus = document.getElementById('chat-status');
+    let loading = false;
+    let busy = false;
+
+    function renderMarkdown(text) {
+      if (window.marked && typeof marked.parse === 'function') {
+        return marked.parse(text || '');
+      }
+      if (!text) return '';
+      return text
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+        .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+        .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+        .replace(/\*\*(.*?)\*\*/gim, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/gim, '<em>$1</em>')
+        .replace(/^\s*[-*]\s+(.*$)/gim, '<li>$1</li>')
+        .replace(/\n/g, '<br>');
+    }
+
+    function appendMsg(sender, text) {
+      const div = document.createElement('div');
+      div.className = 'msg';
+      const label = document.createElement('div');
+      label.className = sender.toLowerCase();
+      label.textContent = sender + ':';
+      div.appendChild(label);
+
+      if (sender === 'Bot') {
+        const content = document.createElement('div');
+        content.className = 'bot-content';
+        content.innerHTML = renderMarkdown(text);
+        div.appendChild(content);
+      } else {
+        const content = document.createElement('div');
+        content.style.marginTop = '0.2rem';
+        content.textContent = text || '';
+        div.appendChild(content);
+      }
+
+      chatBox.appendChild(div);
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    async function loadVideo() {
+      if (loading) return;
+      const url = document.getElementById('url').value.trim();
+      if (!url) { loadStatus.className = 'status error'; loadStatus.innerText = 'Please enter a YouTube URL.'; return; }
+      loadStatus.className = 'status';
+      loadStatus.innerText = 'Loading transcript and building vector store...';
+      loading = true;
+      document.getElementById('load-btn').disabled = true;
+
+      try {
+        const res = await fetch('/load', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ url })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || `Failed to load video (${res.status})`);
+        loadStatus.className = 'status ok';
+        loadStatus.innerText = `Loaded! (${data.chunks} chunks indexed)`;
+      } catch (err) {
+        loadStatus.className = 'status error';
+        loadStatus.innerText = err.message;
+      } finally {
+        loading = false;
+        document.getElementById('load-btn').disabled = false;
+      }
+    }
+
+    async function sendChat(customQuery) {
+      if (busy) return;
+      const qInput = document.getElementById('query');
+      const query = customQuery || qInput.value.trim();
+      if (!query) return;
+      if (!customQuery) qInput.value = '';
+
+      const apiKey = document.getElementById('api-key').value.trim();
+      appendMsg('User', query);
+      chatStatus.className = 'status';
+      chatStatus.innerText = 'Generating answer...';
+      busy = true;
+      document.getElementById('send-btn').disabled = true;
+      document.getElementById('sum-btn').disabled = true;
+
+      try {
+        const res = await fetch('/chat', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ query, api_key: apiKey })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || `Chat request failed (${res.status})`);
+        chatStatus.innerText = '';
+        appendMsg('Bot', data.answer || '');
+      } catch (err) {
+        chatStatus.className = 'status error';
+        chatStatus.innerText = err.message;
+      } finally {
+        busy = false;
+        document.getElementById('send-btn').disabled = false;
+        document.getElementById('sum-btn').disabled = false;
+      }
+    }
+
+    function summarize() {
+      sendChat('Summarize this video key points.');
+    }
+  </script>
+</body>
+</html>

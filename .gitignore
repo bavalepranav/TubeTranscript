@@ -1,0 +1,32 @@
+# Virtual Environments & Caches
+venv/
+env/
+.venv/
+_pycache_/
+*.pyc
+
+# Notebook Checkpoints
+.ipynb_checkpoints/
+
+# Secret Credentials & API Keys
+.env
+*.pem
+*.key
+
+# Data Sheets & Local Databases (Prevents large file push errors)
+*.csv
+*.xlsx
+*.json
+*.db
+*.sqlite3
+
+# Large Saved ML Models & Weights
+*.pkl
+*.h5
+*.pt
+*.onnx
+
+# System & Editor Files
+.vscode/
+.DS_Store
+Thumbs.db
